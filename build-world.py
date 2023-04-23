@@ -5,7 +5,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 import datetime
 import uuid
-import random
+
+nr_certs = 10
 
 # Create a CA
 one_day = datetime.timedelta(1, 0, 0)
@@ -63,10 +64,6 @@ def sign_certificate_request(csr_cert, ca_cert, private_ca_key):
     return cert
 
 
-nr_certs = 10
-nr_revokes = 2
-# Randomly create 100 certs, and revoke 10 of them
-
 certs = []
 
 for i in range(nr_certs):
@@ -101,12 +98,3 @@ for i in range(nr_certs):
 
     certs.append(signed)
     print("- CA signed cert #{}, serial {}".format(i, signed.serial_number))
-
-rcerts = []
-
-for i in range(nr_revokes):
-    rand = random.randrange(0, nr_certs)
-    serial = certs[rand].serial_number
-    print("* CA revoked cert with serial {}".format(serial))
-    rcerts.append(x509.RevokedCertificateBuilder().revocation_date(
-            datetime.datetime.today()).serial_number(serial).build())
