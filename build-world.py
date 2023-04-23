@@ -6,7 +6,7 @@ from cryptography.x509.oid import NameOID
 import datetime
 import uuid
 
-nr_certs = 10
+nr_certs = 1000
 
 # Create a CA
 one_day = datetime.timedelta(1, 0, 0)
@@ -17,15 +17,15 @@ caprivkey = rsa.generate_private_key(
 capubkey = caprivkey.public_key()
 builder = x509.CertificateBuilder()
 builder = builder.subject_name(x509.Name([
-    x509.NameAttribute(NameOID.COMMON_NAME, u'Chen'),
-    x509.NameAttribute(NameOID.ORGANIZATION_NAME, u'CS587')])) \
+    x509.NameAttribute(NameOID.COMMON_NAME, u"Chen"),
+    x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"CS587")])) \
     .not_valid_before(datetime.datetime.today() - one_day) \
     .not_valid_after(datetime.datetime(2025, 1, 1)) \
     .serial_number(int(uuid.uuid4())) \
     .public_key(capubkey) \
     .add_extension(
             x509.BasicConstraints(ca=True, path_length=None), critical=True) \
-    .issuer_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, u'UIC')]))
+    .issuer_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, u"UIC")]))
 
 cacert = builder.sign(
     private_key=caprivkey, algorithm=hashes.SHA256(),
@@ -36,7 +36,7 @@ with open("ca.key", "wb") as f:
     f.write(caprivkey.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.BestAvailableEncryption(b'CS587')
+        encryption_algorithm=serialization.BestAvailableEncryption(b"CS587")
     ))
 
 with open("ca.crt", "wb") as f:
@@ -64,8 +64,6 @@ def sign_certificate_request(csr_cert, ca_cert, private_ca_key):
     return cert
 
 
-certs = []
-
 for i in range(nr_certs):
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
@@ -74,7 +72,7 @@ for i in range(nr_certs):
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.TraditionalOpenSSL,
             encryption_algorithm=serialization.BestAvailableEncryption(
-                b'CS587'),
+                b"CS587"),
         ))
     csr = x509.CertificateSigningRequestBuilder().subject_name(x509.Name([
         # Provide various details about who we are.
@@ -96,5 +94,4 @@ for i in range(nr_certs):
     with open("certs/cert{}.pem".format(i), "wb") as f:
         f.write(signed.public_bytes(serialization.Encoding.PEM))
 
-    certs.append(signed)
     print("- CA signed cert #{}, serial {}".format(i, signed.serial_number))
