@@ -1,7 +1,10 @@
 from cryptography import x509
 from cryptography.x509 import ocsp
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import hashes
 import asyncio
+import secrets
+import uuid
+import pickle
 
 nr_certs = 1000
 
@@ -10,6 +13,8 @@ with open("ca.crt", "rb") as f:
 
 certs = {}
 
+nr_revoked = 0
+
 # load all certs
 for i in range(nr_certs):
     with open("certs/cert{}.pem".format(i), "rb") as f:
@@ -17,34 +22,58 @@ for i in range(nr_certs):
         certs[cert.serial_number] = cert
 
 
-async def ocsp_client(ocspreq):
+async def psi_client(ocspreq):
+    global nr_revoked
+
+    serial = ocspreq.serial_number
+    k = secrets.randbits(512)
+    session_id = uuid.uuid4().hex
+
     reader, writer = await asyncio.open_connection(
         '127.0.0.1', 23333)
-    print("Server connection established")
+    print("CA Server connection established, session {}".format(
+        session_id))
 
-    writer.write(ocspreq.public_bytes(encoding=serialization.Encoding.DER))
+    msg = pickle.dumps([session_id, k])
+
+    writer.write(msg)
     writer.write_eof()
     await writer.drain()
 
-    print("  - Send OCSP request for cert serial {}".format(
-        ocspreq.serial_number))
-
-    data = await reader.read()
-
-    response = ocsp.load_der_ocsp_response(data)
-
-    # just check the status for simplicity
-    if response.certificate_status == ocsp.OCSPCertStatus.GOOD:
-        print("  - Received status OK")
-    else:
-        print("  - Received status REVOKED")
+    print("  - Send PRP seed for serial {}".format(serial))
+    await reader.read(1)
+    print("  - PRP seed ACK received")
 
     writer.close()
     await writer.wait_closed()
+    print("CA Server connection closed")
 
-    print("Server connection closed")
+    reader2, writer2 = await asyncio.open_connection(
+        '127.0.0.1', 23334)
+    print("Third-party connection established")
 
+    msg = pickle.dumps([session_id, True, k ^ serial])
+
+    writer2.write(msg)
+    writer2.write_eof()
+    await writer2.drain()
+
+    print("  - Send permuted serial for serial {}".format(serial))
+    data = await reader2.read(1)
+    print("  - Intersection received")
+    if (data == b"1"):
+        print("  - Received status REVOKED")
+        nr_revoked += 1
+        print(" - NR_REVOKED: ", nr_revoked)
+    else:
+        print("  - Received status OK")
+
+    writer2.close()
+    await writer2.wait_closed()
+    print("Third-party Server connection closed")
+
+count = 1
 for i in certs:
     ocspreq = ocsp.OCSPRequestBuilder().add_certificate(
             certs[i], cacert, hashes.SHA256()).build()
-    asyncio.run(ocsp_client(ocspreq))
+    asyncio.run(psi_client(ocspreq))

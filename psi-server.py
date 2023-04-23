@@ -1,9 +1,9 @@
 from cryptography import x509
-from cryptography.x509 import ocsp
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import serialization
 import datetime
 import random
 import asyncio
+import pickle
 
 nr_certs = 1000
 nr_revokes = 50
@@ -34,46 +34,48 @@ for i in revokes:
     print("- CA revoked cert serial {}".format(certs[i].serial_number))
 
 
-async def handle_ocsp(reader, writer):
+async def handle_server(reader, writer):
     data = await reader.read()
+    msg = pickle.loads(data)
+    session_id = msg[0]
+    k = msg[1]
 
-    ocspreq = ocsp.load_der_ocsp_request(data)
-    serial = ocspreq.serial_number
+    print("CA Server received psi client session {}".format(session_id))
 
-    print("Server received ocsp request for serial {}".format(serial))
-
-    builder = ocsp.OCSPResponseBuilder()
-
-    if serial in crl:
-        builder = builder.add_response(certs[serial], cacert, hashes.SHA256(),
-                                       ocsp.OCSPCertStatus.REVOKED,
-                                       datetime.datetime.now(), None,
-                                       crl[serial].revocation_date, None)
-    else:
-        builder = builder.add_response(certs[serial], cacert, hashes.SHA256(),
-                                       ocsp.OCSPCertStatus.GOOD,
-                                       datetime.datetime.now(), None,
-                                       None, None)
-
-    builder = builder.responder_id(ocsp.OCSPResponderEncoding.HASH, cacert)
-    response = builder.sign(caprivkey, hashes.SHA256())
-
-    writer.write(response.public_bytes(encoding=serialization.Encoding.DER))
+    writer.write(b"1")
     writer.write_eof()
     await writer.drain()
-
-    print("- Server replied ocsp request for serial {}".format(serial))
-
     writer.close()
     await writer.wait_closed()
 
+    print("CA Server client connection closed")
+
+    reader2, writer2 = await asyncio.open_connection(
+        '127.0.0.1', 23334)
+    print("Third-party connection established")
+
+    new_crl = [x ^ k for x in crl]
+
+    msg = pickle.dumps([session_id, False, new_crl])
+
+    writer2.write(msg)
+    writer2.write_eof()
+    await writer2.drain()
+
+    print("  - Send permuted crl")
+
+    await reader2.read(1)
+
+    writer2.close()
+    await writer2.wait_closed()
+    print("Third-party Server connection closed")
+
 
 async def main():
-    server = await asyncio.start_server(
-        handle_ocsp, "127.0.0.1", 23333)
+    server = await asyncio.start_server(handle_server, "127.0.0.1", 23333)
 
     addrs = ", ".join(str(sock.getsockname()) for sock in server.sockets)
-    print(f'OCSP Server running on {addrs}')
+    print(f'CA Server running on {addrs}')
 
     async with server:
         await server.serve_forever()
