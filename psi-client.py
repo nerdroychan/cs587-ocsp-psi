@@ -72,7 +72,6 @@ async def psi_client(ocspreq):
     await writer2.wait_closed()
     print("Third-party Server connection closed")
 
-count = 1
 for i in certs:
     ocspreq = ocsp.OCSPRequestBuilder().add_certificate(
             certs[i], cacert, hashes.SHA256()).build()
